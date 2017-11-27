@@ -157,10 +157,10 @@ def main(debug=False):
             gpid += 1
         elif cmd == 'get':
             pid = sorted(live_list.keys())[0]
-            send(pid, sp[1], set_wait_ack=True)
-        elif cmd == 'add' or cmd == 'delete':
+            send(pid, line, set_wait_ack=True)
+        elif cmd == 'add' or cmd == 'delete' or cmd == 'snapshot':
             pid = sorted(live_list.keys())[-1]
-            send(pid, sp[1], set_wait_ack=True)
+            send(pid, line, set_wait_ack=True)
             for c in crash_later:
                 live_list[c] = False
             crash_later = []

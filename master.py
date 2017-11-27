@@ -165,11 +165,11 @@ def main(debug=False):
                 live_list[c] = False
             crash_later = []
         elif cmd == 'crash':
-            pid = sorted(live_list.keys())[int(sp[1])]
+            pid = sorted(live_list.keys(), reverse=True)[int(sp[1])]
             send(pid, sp[0])
             live_list[pid] = False
         elif cmd[:5] == 'crash':
-            pid = sorted(live_list.keys())[int(sp[1])]
+            pid = sorted(live_list.keys(), reverse=True)[int(sp[1])]
             send(pid, sp[0])
             crash_later.append(pid)
         time.sleep(2)

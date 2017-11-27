@@ -1,6 +1,6 @@
-addReplica 10002
-addReplica 10003
-addReplica 10004
+addReplica 10025
+addReplica 10026
+addReplica 10027
 add song1 URL1
 crashAfterSending 2
 add song2 URL2

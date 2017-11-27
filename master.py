@@ -132,7 +132,7 @@ def main(debug=False):
             exit()
         line = line.strip()  # remove trailing '\n'
 
-        sp = line.split()
+        sp = line.split(None, 1)
         cmd = sp[0]  # first field is the command
         if cmd == 'addReplica':
             pid = gpid
@@ -156,11 +156,11 @@ def main(debug=False):
             # increase pid for the next command
             gpid += 1
         elif cmd == 'get':
-            pid = sort(live_list.keys())[-1]
-            send(pid, sp1[1], set_wait_ack=True)
-        elif cmd == 'add' or cmd == 'delete':
             pid = sorted(live_list.keys())[0]
-            send(pid, sp1[1], set_wait_ack=True)
+            send(pid, sp[1], set_wait_ack=True)
+        elif cmd == 'add' or cmd == 'delete':
+            pid = sorted(live_list.keys())[-1]
+            send(pid, sp[1], set_wait_ack=True)
             for c in crash_later:
                 live_list[c] = False
             crash_later = []

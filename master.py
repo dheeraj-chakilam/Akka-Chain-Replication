@@ -147,12 +147,12 @@ def main(debug=False):
             pid = sorted(live_list.keys())[-1]
             send(pid, line)
             for c in crash_later:
-                live_list[c] = False
+                del live_list[c]
             crash_later = []
         elif cmd == 'crash':
             pid = sorted(live_list.keys(), reverse=True)[int(sp[1])]
             send(pid, sp[0])
-            live_list[pid] = False
+            del live_list[pid]
         elif cmd[:5] == 'crash':
             pid = sorted(live_list.keys(), reverse=True)[int(sp[1])]
             send(pid, sp[0])

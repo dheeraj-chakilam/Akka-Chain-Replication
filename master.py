@@ -16,7 +16,6 @@ address = 'localhost'
 threads = {}
 live_list = {}
 crash_later = []
-wait_ack = False
 
 
 class ClientHandler(Thread):
@@ -30,7 +29,7 @@ class ClientHandler(Thread):
         self.process = process
 
     def run(self):
-        global threads, wait_ack
+        global threads
         while self.valid:
             if "\n" in self.buffer:
                 (l, rest) = self.buffer.split("\n", 1)
@@ -41,9 +40,8 @@ class ClientHandler(Thread):
                 if s[0] == 'resp' or s[0] == 'snapshot':
                     sys.stdout.write(s[1] + '\n')
                     sys.stdout.flush()
-                    wait_ack = False
                 elif s[0] == 'ack':
-                    wait_ack = False
+                    pass
                 else:
                     print s
             else:
@@ -78,29 +76,17 @@ class ClientHandler(Thread):
             pass
 
 
-def send(index, data, set_wait_ack=False):
-    global live_list, threads, wait_ack
-    wait = wait_ack
-    while wait:
-        time.sleep(0.01)
-        wait = wait_ack
+def send(index, data):
+    global live_list, threads
     pid = int(index)
     if pid not in threads:
         print 'Master or testcase error!'
         return
-    if set_wait_ack:
-        wait_ack = True
     threads[pid].send(data)
     return
 
-def exit(exit=False):
-    global threads, wait_ack
-
-    wait = wait_ack
-    wait = wait and (not exit)
-    while wait:
-        time.sleep(0.01)
-        wait = wait_ack
+def exit():
+    global threads
 
     time.sleep(2)
     for k in threads:
@@ -110,13 +96,12 @@ def exit(exit=False):
 
 
 def timeout():
-    global wait_ack
     time.sleep(120)
-    exit(True)
+    exit()
 
 
 def main(debug=False):
-    global threads, crash_later, wait_ack
+    global threads, crash_later
     timeout_thread = Thread(target=timeout, args=())
     timeout_thread.setDaemon(True)
     timeout_thread.start()
@@ -127,7 +112,7 @@ def main(debug=False):
         try:
             line = sys.stdin.readline()
         except:  # keyboard exception, such as Ctrl+C/D
-            exit(True)
+            exit()
         if line == '':  # end of a file
             exit()
         line = line.strip()  # remove trailing '\n'
@@ -157,10 +142,10 @@ def main(debug=False):
             gpid += 1
         elif cmd == 'get':
             pid = sorted(live_list.keys())[0]
-            send(pid, line, set_wait_ack=True)
+            send(pid, line)
         elif cmd == 'add' or cmd == 'delete' or cmd == 'snapshot':
             pid = sorted(live_list.keys())[-1]
-            send(pid, line, set_wait_ack=True)
+            send(pid, line)
             for c in crash_later:
                 live_list[c] = False
             crash_later = []

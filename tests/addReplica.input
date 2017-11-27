@@ -1,0 +1,10 @@
+addReplica 10005
+addReplica 10006
+addReplica 10007
+add song1 URL1
+addReplica 10008
+add song2 URL2
+addReplica 10009
+delete song2
+get song2
+snapshot

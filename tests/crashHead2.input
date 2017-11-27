@@ -1,0 +1,9 @@
+addReplica 10010
+addReplica 10011
+addReplica 10012
+add song1 URL1
+crashAfterSending 0
+add song2 URL2
+delete song2
+get song1
+snapshot

@@ -1,0 +1,4 @@
+NONE
+<<add:song1:URL1><add:song2:URL2><delete:song2>><<add:song1:URL1><add:song2:URL2><delete:song2>>
+<<add:song1:URL1><add:song2:URL2><delete:song2>><<add:song1:URL1><add:song2:URL2><delete:song2>>
+<<add:song1:URL1><add:song2:URL2><delete:song2>><<add:song1:URL1><add:song2:URL2><delete:song2>>

@@ -70,8 +70,10 @@ let getSuccessor selfID aliveThreshold state =
         getAliveMap aliveThreshold state
         |> Map.filter (fun id _ -> id < selfID)
         |> Map.fold (fun (maxID, maxRef) id ref -> if id > maxID then (id, Some ref) else (maxID, maxRef)) (-1L, None)
-    let songList =
-        if maxRef = None && state.successor <> None then
+    
+    if maxRef = None && state.successor <> None then
+        printfn "Detected crash of successor. I am the tail now."
+        let songList =
             List.fold (fun songList update ->
                 if not <| List.contains update state.stableLog then
                     match update with
@@ -83,10 +85,9 @@ let getSuccessor selfID aliveThreshold state =
                             Map.remove name songList
                 else
                     songList) state.songList state.speculativeLog
-        else
-            state.songList
-
-    { state with successor = maxRef ; songList = songList ; stableLog = state.speculativeLog }
+        { state with successor = maxRef ; songList = songList ; stableLog = state.speculativeLog }
+    else
+        { state with successor = maxRef }
 
 let getPredecessor selfID aliveThreshold state =
     let (_, minRef) =
@@ -162,6 +163,7 @@ let room selfID beatrate aliveThreshold (mailbox: Actor<RoomMsg>) =
                 ref <! (sprintf "updatehead %s" logString)
                 return! loop state
             | None ->
+                printfn "Received UpdateHead"
                 let (songList, log) =
                     logString.Trim().Split([|' '|])
                     |> Array.fold (fun (songList, log) updateString ->
@@ -177,7 +179,7 @@ let room selfID beatrate aliveThreshold (mailbox: Actor<RoomMsg>) =
             | Some AfterReceive -> System.Environment.Exit(0)
             | _ -> ()
             
-            printfn "Received request with predecessor: %A" state.predecessor
+            printfn "Received request of %A with predecessor: %A" update state.predecessor
             let (songList, stableLog) =
                 if not <| List.contains update state.speculativeLog then
                     match update with
@@ -188,6 +190,7 @@ let room selfID beatrate aliveThreshold (mailbox: Actor<RoomMsg>) =
                             ref <! (sprintf "add %s %s" name url)
                             (state.songList, state.stableLog)
                         | None ->
+                            printfn "Detected crash/no successor."
                             Option.iter (fun r -> r <! (sprintf "ackadd %s %s" name url)) state.predecessor
                             (Map.add name url state.songList, update::state.stableLog)
 
@@ -222,8 +225,7 @@ let room selfID beatrate aliveThreshold (mailbox: Actor<RoomMsg>) =
                         ref <! (sprintf "add %s %s" name url)
                     | Delete name ->
                         ref <! (sprintf "delete %s" name)) state.successor
-            
-            scheduleOnce mailbox 500L mailbox.Self (RequestTimeout update) |> ignore
+                scheduleOnce mailbox 500L mailbox.Self (RequestTimeout update) |> ignore
             
             return! loop state
         

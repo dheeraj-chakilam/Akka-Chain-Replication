@@ -28,25 +28,34 @@ let handler world serverType selfID connection (mailbox: Actor<obj>) =
                 
                 | [| "add"; message |] ->
                     match message.Trim().Split([|' '|], 2) with
-                    | [| name; url |] -> world <! AddSong (name, url)
+                    | [| name; url |] -> world <! Request (Add (name, url))
                     | _ -> connection <! Tcp.Write.Create (ByteString.FromString <| sprintf "Invalid request. (%A)\n" data)                
                 
                 | [| "delete"; message |] ->
-                    world <! DeleteSong (message.Trim())
+                    world <! Request (Delete (message.Trim()))
 
                 | [| "ackadd"; message |] ->
                     match message.Trim().Split([|' '|], 2) with
-                    | [| name; url |] -> world <! AckAddSong (name, url)
+                    | [| name; url |] -> world <! Ack (Add (name, url))
                     | _ -> connection <! Tcp.Write.Create (ByteString.FromString <| sprintf "Invalid request. (%A)\n" data)                
                 
                 | [| "ackdelete"; message |] ->
-                    world <! AckDeleteSong (message.Trim())
+                    world <! Ack (Delete (message.Trim()))
                 
                 | [| "addreplica" |] ->
                     world <! AddReplica
+                
+                | [| "updatehead"; message |] ->
+                    world <! UpdateHead message
+
+                | [| "updatehead" |] ->
+                    world <! UpdateHead ""
             
                 | [| "get"; message |] ->
                     world <! GetSong (message.Trim())
+
+                | [| "snapshot" |] ->
+                    world <! GetSnapshot
 
                 | _ ->
                     connection <! Tcp.Write.Create (ByteString.FromString <| sprintf "Invalid request. (%A)\n" data)) lines

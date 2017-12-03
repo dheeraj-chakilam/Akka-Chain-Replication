@@ -3,9 +3,6 @@
 open Akka.FSharp
 open Akka.Actor
 
-type Update =
-    | Add of string * string
-    | Delete of string
 
 type RoomState = {
     master: IActorRef option
@@ -15,8 +12,14 @@ type RoomState = {
     successor: IActorRef option
     speculativeLog: Update list
     stableLog: Update list
+    crash: CrashType option
 }
 
+and CrashType = AfterSend | AfterReceive
+
+and Update =
+    | Add of string * string
+    | Delete of string
 
 type RoomMsg =
     | Join of IActorRef
@@ -27,9 +30,12 @@ type RoomMsg =
     | AddReplica
     | UpdateHead of string
     | Request of Update
+    | RequestTimeout of Update
     | Ack of Update
     | GetSong of string
     | GetSnapshot
+    | Crash of CrashType
+
 
 
 let scheduleRepeatedly (sender:Actor<_>) rate actorRef message =
@@ -47,20 +53,15 @@ let scheduleOnce (sender:Actor<_>) after actorRef message =
         message,
         sender.Self)
 
-
 let sw =
     let sw = System.Diagnostics.Stopwatch()
     sw.Start()
     sw
 
-let filterAlive aliveThreshold map =
-    map
-    |> Map.filter (fun _ (_,ms) -> (sw.ElapsedMilliseconds - ms) < aliveThreshold)
-
 // Get a map (id, ref) of all the alive processes
 let getAliveMap aliveThreshold state =
     state.beatmap
-    |> filterAlive aliveThreshold
+    |> Map.filter (fun _ (_,ms) -> (sw.ElapsedMilliseconds - ms) < aliveThreshold)
     |> Map.map (fun id (ref,_) -> ref)
         
 let getSuccessor selfID aliveThreshold state =
@@ -69,9 +70,25 @@ let getSuccessor selfID aliveThreshold state =
         getAliveMap aliveThreshold state
         |> Map.filter (fun id _ -> id < selfID)
         |> Map.fold (fun (maxID, maxRef) id ref -> if id > maxID then (id, Some ref) else (maxID, maxRef)) (-1L, None)
-    maxRef
+    let songList =
+        if maxRef = None && state.successor <> None then
+            List.fold (fun songList update ->
+                if not <| List.contains update state.stableLog then
+                    match update with
+                        | Add (name,url) ->
+                            Option.iter (fun ref -> ref <! (sprintf "ackadd %s %s" name url)) state.predecessor
+                            Map.add name url songList
+                        | Delete name ->
+                            Option.iter (fun ref -> ref <! (sprintf "ackdelete %s" name)) state.predecessor
+                            Map.remove name songList
+                else
+                    songList) state.songList state.speculativeLog
+        else
+            state.songList
 
-let getPredecessor aliveThreshold selfID state =
+    { state with successor = maxRef ; songList = songList ; stableLog = state.speculativeLog }
+
+let getPredecessor selfID aliveThreshold state =
     let (_, minRef) =
         getAliveMap aliveThreshold state
         |> Map.filter (fun id _ -> id > selfID)
@@ -114,7 +131,9 @@ let room selfID beatrate aliveThreshold (mailbox: Actor<RoomMsg>) =
         let sender = mailbox.Sender()
         
         let state =
-            { state with successor = getSuccessor selfID aliveThreshold state ; predecessor = getPredecessor selfID aliveThreshold state }
+            { (getSuccessor selfID aliveThreshold state) with
+                predecessor = (getPredecessor selfID aliveThreshold state)
+            }
 
         match msg with
         | Join ref ->
@@ -129,29 +148,7 @@ let room selfID beatrate aliveThreshold (mailbox: Actor<RoomMsg>) =
 
         | InitializeHead ->
             Option.iter (fun r -> r <! "addreplica") state.successor
-            //scheduleRepeatedly mailbox aliveThreshold mailbox.Self CheckLinks |> ignore
             return! loop state
-
-        //| CheckLinks ->
-        //    let successor =
-        //        match state.successor with
-        //        | Some ref ->
-        //            if (getAliveMap state |> Map.exists (fun _ ref' -> ref' = ref)) then
-        //                state.successor
-        //            else
-        //                getSuccessor state
-        //        | None -> state.successor
-
-        //    let predecessor =
-        //        match state.predecessor with
-        //        | Some ref ->
-        //            if (getAliveMap state |> Map.exists (fun _ ref' -> ref' = ref)) then
-        //                state.predecessor
-        //            else
-        //                getPredecessor state
-        //        | None -> state.predecessor
-
-        //    return! loop { state with successor = successor ; predecessor = predecessor }
         
         | AddReplica ->
             match state.successor with
@@ -176,34 +173,65 @@ let room selfID beatrate aliveThreshold (mailbox: Actor<RoomMsg>) =
                 return! loop { state with songList = songList ; speculativeLog = log ; stableLog = log }
 
         | Request update ->
+            match state.crash with
+            | Some AfterReceive -> System.Environment.Exit(0)
+            | _ -> ()
+            
+            printfn "Received request with predecessor: %A" state.predecessor
             let (songList, stableLog) =
-                match update with
-                | (Add (name, url)) ->
-                    //TODO: Add speculative and stable log
-                    match state.successor with
-                    | Some ref ->
-                        ref <! (sprintf "add %s %s" name url)
-                        (state.songList, state.stableLog)
-                    | None ->
-                        Option.iter (fun r -> r <! (sprintf "ackadd %s %s" name url)) state.predecessor
-                        (Map.add name url state.songList, update::state.stableLog)
+                if not <| List.contains update state.speculativeLog then
+                    match update with
+                    | (Add (name, url)) ->
+                        //TODO: Add speculative and stable log
+                        match state.successor with
+                        | Some ref ->
+                            ref <! (sprintf "add %s %s" name url)
+                            (state.songList, state.stableLog)
+                        | None ->
+                            Option.iter (fun r -> r <! (sprintf "ackadd %s %s" name url)) state.predecessor
+                            (Map.add name url state.songList, update::state.stableLog)
 
-                | Delete name ->
-                    //TODO: Add speculative and stable log
-                    match state.successor with
-                    | Some ref ->
-                        ref <! (sprintf "delete %s" name)
-                        (state.songList, state.stableLog)
-                    | None ->
-                        Option.iter (fun r -> r <! (sprintf "ackdelete %s" name )) state.predecessor
-                        (Map.remove name state.songList, update::state.stableLog)
+                    | Delete name ->
+                        //TODO: Add speculative and stable log
+                        match state.successor with
+                        | Some ref ->
+                            ref <! (sprintf "delete %s" name)
+                            (state.songList, state.stableLog)
+                        | None ->
+                            Option.iter (fun r -> r <! (sprintf "ackdelete %s" name )) state.predecessor
+                            (Map.remove name state.songList, update::state.stableLog)
+                else
+                    (state.songList, state.stableLog)
+            
+            scheduleOnce mailbox 500L mailbox.Self (RequestTimeout update) |> ignore
+            
+            match state.crash with
+            | Some AfterSend ->
+                async {
+                    do! Async.Sleep 300
+                    System.Environment.Exit(0) } |> Async.Start
+            | _ -> ()
             
             return! loop { state with songList = songList ; speculativeLog = update::state.speculativeLog ; stableLog = stableLog }
 
+        | RequestTimeout update ->
+            if not <| List.contains update state.stableLog then
+                Option.iter (fun ref ->
+                    match update with
+                    | Add (name,url) ->
+                        ref <! (sprintf "add %s %s" name url)
+                    | Delete name ->
+                        ref <! (sprintf "delete %s" name)) state.successor
+            
+            scheduleOnce mailbox 500L mailbox.Self (RequestTimeout update) |> ignore
+            
+            return! loop state
+        
         | Ack update ->
+            printfn "Received ack of %A" update
             let songList =
                 match update with
-                | (Add (name, url)) ->
+                | Add (name, url) ->
                     match state.predecessor with
                     | Some ref -> ref <! (sprintf "ackadd %s %s" name url) 
                     | None -> Option.iter (fun m -> m <! "ack commit") state.master
@@ -228,12 +256,28 @@ let room selfID beatrate aliveThreshold (mailbox: Actor<RoomMsg>) =
             return! loop state
         
         | GetSnapshot ->
-            Option.iter (fun ref -> ref <! sprintf "<%s><%s>" (stringifyLog state.speculativeLog) (stringifyLog state.stableLog)) state.master
+            match state.crash with
+            | Some AfterReceive -> System.Environment.Exit(0)
+            | _ -> ()
+            
+            Option.iter (fun ref -> ref <! sprintf "snapshot <%s><%s>" (stringifyLog state.speculativeLog) (stringifyLog state.stableLog)) state.master
             Option.iter (fun ref -> ref <! "snapshot") state.successor
+            
+            match state.crash with
+            | Some AfterSend ->
+                async {
+                    do! Async.Sleep 300
+                    System.Environment.Exit(0) } |> Async.Start
+            | _ -> ()
+            
             return! loop state
+        
+        | Crash crash ->
+            printfn "Received a crash %A" crash
+            return! loop { state with crash = Some crash }
     }
 
-    scheduleOnce mailbox 1500L mailbox.Self InitializeHead |> ignore
+    scheduleOnce mailbox 1000L mailbox.Self InitializeHead |> ignore
 
     loop {
         master = None
@@ -243,4 +287,5 @@ let room selfID beatrate aliveThreshold (mailbox: Actor<RoomMsg>) =
         successor = None
         speculativeLog = []
         stableLog = []
+        crash = None
         }

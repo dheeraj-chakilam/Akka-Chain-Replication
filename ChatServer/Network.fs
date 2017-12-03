@@ -56,6 +56,15 @@ let handler world serverType selfID connection (mailbox: Actor<obj>) =
 
                 | [| "snapshot" |] ->
                     world <! GetSnapshot
+                
+                | [| "crash" |] ->
+                    System.Environment.Exit(0)
+
+                | [| "crashAfterReceiving" |] ->
+                    world <! Crash AfterReceive
+                
+                | [| "crashAfterSending" |] ->
+                    world <! Crash AfterSend
 
                 | _ ->
                     connection <! Tcp.Write.Create (ByteString.FromString <| sprintf "Invalid request. (%A)\n" data)) lines
